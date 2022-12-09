@@ -10,17 +10,23 @@ from keras.layers import Flatten
 from keras.layers import Dense # Fully Connected Networks
 import keras
 from tensorflow import transpose
-from tensorflow import convert_to_tensor as to_T
-from keras import backend as K
+from keras.regularizers import l2
+
+N = 8
+M = 8
+K = 5
 
 class Network_Model:
     def __init__(self) -> None:
 
-        self.InputTensor = Input(shape=(3,3,4))
+        self.InputTensor = Input(shape=(N, M, 4))
         # self.H1 = Dense(10, activation='relu')(self.InputTensor)
-        self.H2 = Conv2D(32, 3, 3, input_shape = (3,3,4), activation = 'relu')(self.InputTensor)
+        self.H2 = Conv2D(32, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.InputTensor)
+        self.H2 = Conv2D(64, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
+        self.H2 = Conv2D(128, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
+        self.H2 = Conv2D(16, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
         self.H3 = Flatten()(self.H2)
-        self.strategyOutput = Dense(3 * 3, activation='softmax')(self.H3)
+        self.strategyOutput = Dense(N * M, activation='softmax')(self.H3)
         self.valueOutput = Dense(1, activation='tanh')(self.H3)
         self.model = keras.Model(
             inputs=[self.InputTensor],
@@ -141,7 +147,7 @@ class MCTS:
         self.c = math.sqrt(2)
         self.epsilon = 0.25
         self.c_puct = 5
-        self.interations = 100
+        self.interations = 400
         self.board = copy.deepcopy(board)
         self.color = color
         self.root = Node(color=1-color)
@@ -241,7 +247,7 @@ class MCTS:
             node.Q = node.W / node.N
             node = node.parent
 
-    def train(self, games = 100):
+    def train(self, games = 1000):
         for game in range(games):
             train_X = []
             train_Y = [],[]
@@ -335,8 +341,8 @@ if __name__ == '__main__':
     Test = False
 
     if Train:
-        mcts = MCTS(Board(), 0, Network_Model())
-        mcts.train(100)
+        mcts = MCTS(Board(8,8,5), 0, Network_Model())
+        mcts.train(1000)
         mcts.save_weights('cnn_weight.h5')
         main()
 
