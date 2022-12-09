@@ -24,7 +24,7 @@ class Network_Model:
         self.H2 = Conv2D(32, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.InputTensor)
         self.H2 = Conv2D(64, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
         self.H2 = Conv2D(128, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
-        self.H2 = Conv2D(16, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
+        self.H2 = Conv2D(4, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
         self.H3 = Flatten()(self.H2)
         self.strategyOutput = Dense(N * M, activation='softmax')(self.H3)
         self.valueOutput = Dense(1, activation='tanh')(self.H3)
@@ -300,6 +300,7 @@ class MCTS:
             for i in range(len(train_Y[0])):
                 train_Y[1].append([z])
             self.model.fit(train_X, train_Y)
+            self.save_weights('cnn_weight.h5')
 
     def play(self):
         for i in range(self.interations):
