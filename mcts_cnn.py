@@ -12,9 +12,9 @@ import keras
 from tensorflow import transpose
 from keras.regularizers import l2
 
-N = 8
-M = 8
-K = 5
+N = 3
+M = 3
+K = 3
 
 class Network_Model:
     def __init__(self) -> None:
@@ -22,8 +22,8 @@ class Network_Model:
         self.InputTensor = Input(shape=(N, M, 4))
         # self.H1 = Dense(10, activation='relu')(self.InputTensor)
         self.H2 = Conv2D(32, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.InputTensor)
-        self.H2 = Conv2D(64, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
-        self.H2 = Conv2D(128, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
+        # self.H2 = Conv2D(64, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
+        # self.H2 = Conv2D(128, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
         self.H2 = Conv2D(4, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
         self.H3 = Flatten()(self.H2)
         self.strategyOutput = Dense(N * M, activation='softmax')(self.H3)
@@ -37,7 +37,8 @@ class Network_Model:
     def fit(self, train_X, train_Y):
         train_X = np.array(train_X)
         train_Y = [np.array(train_Y[0]), np.array(train_Y[1])]
-        self.model.fit(train_X, train_Y)
+        print('number of training data', len(train_X))
+        self.model.fit(train_X, train_Y, epochs=5)
     def predict(self, feature):
         return self.model.predict(feature)
 
@@ -115,7 +116,7 @@ class Board:
         if not self.inBound(x, y):
             return False
         return self.grid[x][y] == -1
-    def getFeatures(self):
+    def getFeatures(self, k = 0, flip = 0):
         feature = np.array([[[0.0 for j in range(self.N)] for i in range(self.M)] for k in range(4)])
         for i in range(self.N):
             for j in range(self.M):
@@ -127,6 +128,11 @@ class Board:
             for i in range(self.N):
                 for j in range(self.M):
                     feature[3][i][j] = 1.0
+        for channel in range(4):
+            if K:
+                feature[channel] = np.rot90(feature[channel], k)
+            if flip:
+                feature[channel] = np.flipud(feature[channel])
         return transpose(feature, (1,2,0))
     def draw(self) -> None:
         print("BOARD:")
@@ -139,7 +145,7 @@ class Board:
                 if self.grid[i][j] == 1:
                     print('X', end = ' ')
             print('')
-        for i in range(self.M):
+        for i in range(self.M * 2):
             print('-', end = '')
         print('')
 class MCTS:
@@ -147,6 +153,7 @@ class MCTS:
         self.c = math.sqrt(2)
         self.epsilon = 0.25
         self.c_puct = 5
+        self.temp = 1e-2
         self.interations = 400
         self.board = copy.deepcopy(board)
         self.color = color
@@ -169,16 +176,7 @@ class MCTS:
                 self.backpropagation(node, z)
                 break
             if node.N == 0 or len(node.child) == 0:
-                # print('start expand')
-                # print('node N = ', node.N)
-                # board.draw()
                 self.expansion(board, node)
-                # board.draw()
-                # print('node terminal', node.terminal)
-                # print('after expand')
-                # print('node N = ', node.N)
-                # if not node.terminal:
-                #     print('child[0] N = ', node.child[0].N)
                 break
             ucbMax = -1e9
             chose = -1
@@ -197,9 +195,6 @@ class MCTS:
 
     def expansion(self, board : Board, node : Node): # finish
         if board.checkTerminal() != -1:
-            # print('Terminal node')
-            # board.draw()
-            # print('')
             node.terminal = True
             result = board.checkTerminal()
             z = 0
@@ -209,19 +204,14 @@ class MCTS:
                 z = -1
             self.backpropagation(node, z)
             return
-        # print('input shape = ', np.array([board.getFeatures()]))
         y = self.model.predict(np.array([board.getFeatures()]))
-        # print('expand')
-        # print('y = ', y)
         color = 1 - node.color
         for i in range(board.N):
             for j in range(board.M):
                 if not board.canPlay(i, j):
                     continue
                 child_idx = i * board.M + j
-                # print('P = ', y[0][0][child_idx])
                 node.child.append(Node(i, j, color, node, y[0][0][child_idx]))
-        # print('V = ', y[1][0][0])
         self.backpropagation(node, y[1][0][0])
 
     def simulation(self, board : Board, color : int): # finish
@@ -246,6 +236,11 @@ class MCTS:
             node.W += z
             node.Q = node.W / node.N
             node = node.parent
+    def softmax(self, x):
+        probs = np.exp(x - np.max(x))
+        sum = np.sum(probs)
+        probs /= sum
+        return probs
 
     def train(self, games = 1000):
         for game in range(games):
@@ -255,25 +250,29 @@ class MCTS:
             board = copy.deepcopy(self.board)
             node = self.root
             while board.checkTerminal() == -1:
-                train_X.append(board.getFeatures())
+                # train_X.append(board.getFeatures())
+                for i in range(4):
+                    for j in range(2):
+                        train_X.append(board.getFeatures(i, j))
                 for iter in range(self.interations):
                     self.selection(node, board)
                 target_y = np.zeros(board.N * board.M)
-                strategy = []
+                visits = [node.child[i].N for i in range(len(node.child))]
                 actionSet = []
+                strategy = self.softmax(1.0/self.temp * np.log(np.array(visits) + 1e-10))
                 for i in range(len(node.child)):
                     idx = node.child[i].x * board.M + node.child[i].y
-                    target_y[idx] = node.child[i].N / (node.N - 1)
                     actionSet.append(i)
-                    strategy.append(target_y[idx])
-                train_Y[0].append(target_y)
-                # print('node N = ', node.N)
-                # for i in range(len(node.child)):
-                #     print('child i N = ', node.child[i].N)
+                    target_y[idx] = strategy[i]
+                for i in range(4):
+                    for j in range(2):
+                        y = np.array(target_y).reshape((board.N, board.M))
+                        y = np.rot90(y, i)
+                        if j:
+                            y = np.flipud(y)
+                        train_Y[0].append(y.reshape(board.N * board.M))
                 strategy = np.array(strategy)
-                # print(strategy.sum())
                 strategy = self.epsilon * np.random.dirichlet(0.3*np.ones(len(strategy))) + (1 - self.epsilon) * np.array(strategy)
-                # print(strategy.sum())
                 if len(actionSet) == 0:
                     print("ERR of actionSet")
                     board.draw()
@@ -284,10 +283,11 @@ class MCTS:
                 action = np.random.choice(actionSet, p=strategy) # 將要玩的子節點編號
                 board.play(node.child[action].x, node.child[action].y, board.round % 2)
                 print('play at ', node.child[action].x, node.child[action].y)
-                tmp = []
-                for i in actionSet:
-                    tmp.append([node.child[i].x, node.child[i].y])
-                print(tmp)
+                print('v = ', node.child[action].Q)
+                # tmp = []
+                # for i in actionSet:
+                #     tmp.append([node.child[i].x, node.child[i].y])
+                # print(tmp)
                 board.draw()
                 print('')
                 node = node.child[action]
@@ -299,6 +299,7 @@ class MCTS:
                 z = -1
             for i in range(len(train_Y[0])):
                 train_Y[1].append([z])
+            print('z = ', z)
             self.model.fit(train_X, train_Y)
             self.save_weights('cnn_weight.h5')
 
@@ -319,7 +320,7 @@ class MCTS:
         self.model.model.load_weights(filename)
 
 def main():
-    board = Board()
+    board = Board(N, M, K)
     color = 1
     while True:
         x = int(input(''))
@@ -331,21 +332,26 @@ def main():
         x, y = mcts.play()
         for i in range(len(mcts.root.child)):
             node = mcts.root.child[i]
-            print('action x, y, w, n, ev')
-            print(node.x, node.y, node.W, node.N, node.W / node.N)
+            print('action x, y, w, n, ev, P')
+            print(node.x, node.y, node.W, node.N, node.Q, node.P)
         print('play at', x, y)
         board.play(x, y, color)
         board.draw()
+
+        # x = int(input(''))
+        # y = int(input(''))
+        # board.play(x, y, 1 - color)
         
 if __name__ == '__main__':
-    Train = True
+    Train = False
     Test = False
 
     if Train:
-        mcts = MCTS(Board(8,8,5), 0, Network_Model())
-        mcts.train(1000)
+        mcts = MCTS(Board(N,M,K), 0, Network_Model())
+        mcts.load_weights('cnn_weight.h5')
+        mcts.train(100)
         mcts.save_weights('cnn_weight.h5')
-        main()
+    main()
 
     if Test:
         model = Network_Model()
