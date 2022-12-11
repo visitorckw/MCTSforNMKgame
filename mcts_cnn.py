@@ -87,7 +87,7 @@ class Board:
                     while True:
                         x = i + dir[d][0] * k
                         y = j + dir[d][1] * k
-                        if not self.canPlay(x, y):
+                        if not self.inBound(x, y):
                             break
                         if self.grid[i][j] == self.grid[x][y]:
                             ctr += 1
@@ -343,29 +343,27 @@ def main():
         # board.play(x, y, 1 - color)
         
 if __name__ == '__main__':
-    Train = False
+    Train = True
     Test = False
 
     if Train:
         mcts = MCTS(Board(N,M,K), 0, Network_Model())
-        mcts.load_weights('cnn_weight.h5')
+        # mcts.load_weights('cnn_weight.h5')
         mcts.train(100)
         mcts.save_weights('cnn_weight.h5')
     main()
 
     if Test:
-        model = Network_Model()
-        feature = np.array([[[0 for j in range(3)] for i in range(3)] for k in range(4)])
-        input = transpose(feature, (1,2,0))
-        print(input)
-        input = np.array([input])
-        y = model.predict(input)
-        print(y)
-        # print(y[0].shape)
-        # print(y[1].shape)
-        print(len(y))
-        print(len(y[0]))
-        print(len(y[1]))
-        print(len(y[0][0]))
-        print(len(y[1][0]))
+        board = Board(8,8,5)
+        dir = [[0,1], [1,0], [1,1], [1,-1]]
+        i = 5
+        x = 0 + dir[2][0] * (i+1)
+        y = 0 + dir[2][1] * (i+1)
+        board.play(x, y, 0)
+        for i in range(5):
+            x = 0 + dir[2][0] * (i+1)
+            y = 0 + dir[2][1] * (i+1)
+            board.play(x, y, 0)
+            print(board.checkTerminal())
+        board.draw()
         
