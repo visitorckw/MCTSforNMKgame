@@ -129,7 +129,7 @@ class Board:
                 for j in range(self.M):
                     feature[3][i][j] = 1.0
         for channel in range(4):
-            if K:
+            if k:
                 feature[channel] = np.rot90(feature[channel], k)
             if flip:
                 feature[channel] = np.flipud(feature[channel])
