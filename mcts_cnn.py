@@ -45,7 +45,7 @@ class Network_Model:
         return self.model.predict(feature)
 
 class Node:
-    def __init__(self, x = -1, y = -1, color = 1, parent = None, P = 0.0) -> None:
+    def __init__(self, x = -1, y = -1, color = 1, parent = None, P = 0.0, timestamp = 0, v = 0) -> None:
         self.W = 0
         self.N = 0
         self.P = P
@@ -56,6 +56,12 @@ class Node:
         self.color = color
         self.parent = parent
         self.child = []
+        self.timestamp = timestamp
+        self.v = v
+    def reset(self):
+        self.W = 0
+        self.N = 0
+        self.Q = 0
 class Board:
     def __init__(self, N = 3, M = 3, K = 3) -> None:
         self.N = N
@@ -180,9 +186,15 @@ class MCTS:
         self.model = model
         self.train_X = []
         self.train_Y = [], []
+        self.timestamp = 0
     def selection(self, node : Node, board : Board) -> None: ## finish
         # board = copy.deepcopy(board)
         while True:
+            if node.timestamp != self.timestamp:
+                node.reset()
+                node.timestamp = self.timestamp
+                self.backpropagation(node, node.v, board)
+                break
             if node.terminal:
                 result = board.checkTerminal()
                 z = 0
@@ -236,6 +248,7 @@ class MCTS:
                     node.child.append(Node(i, j, color, node, (1 - self.epsilon) * y[0][0][child_idx] + self.epsilon * noise[child_idx]))
                 else:
                     node.child.append(Node(i, j, color, node, y[0][0][child_idx]))
+        node.v = y[1][0][0]
         self.backpropagation(node, y[1][0][0], board)
 
     def simulation(self, board : Board, color : int): # finish
@@ -275,6 +288,7 @@ class MCTS:
             print('training games: ' + str(game+1) + '/' + str(games))
             board = copy.deepcopy(self.board)
             node = Node(color=1)
+            self.timestamp = 0
             while board.checkTerminal() == -1:
                 # train_X.append(board.getFeatures())
                 for i in range(4):
@@ -323,8 +337,14 @@ class MCTS:
                 # print(tmp)
                 board.draw()
                 print('')
-                # node = node.child[action]
-                node = Node(color=1 - board.round % 2)
+                node = node.child[action]
+                node.parent = None
+                noise = np.random.dirichlet(0.3 * np.ones(board.N * board.M))
+                for i in range(len(node.child)):
+                    idx = node.child[i].x * board.M + node.child[i].y
+                    node.child[i].P = (1 - self.epsilon) * node.child[i].P + self.epsilon * noise[idx]
+                self.timestamp += 1
+                # node = Node(color=1 - board.round % 2)
             z = 0
             result = board.checkTerminal()
             if result == 0:
