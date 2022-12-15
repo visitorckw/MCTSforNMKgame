@@ -63,6 +63,7 @@ class Board:
         self.K = K
         self.grid = [[-1 for j in range(self.M)] for i in range(self.N)]
         self.round = 0
+        self.history = []
         self.last_action = [-1, -1]
     def checkTerminal(self):
         played = 0
@@ -108,7 +109,23 @@ class Board:
             return -1
         self.grid[x][y] = color
         self.last_action = [x, y]
+        self.history.append([x, y])
         self.round += 1
+        return 0
+    def undo(self,) -> int:
+        if len(self.history) == 0:
+            print('ERR: Undoing while didn\'t have a stone')
+            self.draw()
+            return -1
+        x = self.history[-1][0]
+        y = self.history[-1][1]
+        self.grid[x][y] = -1
+        self.round -= 1
+        self.history.pop()
+        if self.round >= 1:
+            self.last_action = self.history[-1]
+        else:
+            self.last_action = [-1, -1]
         return 0
     def inBound(self, x, y) -> bool:
         if x < 0 or y < 0 or x >= self.N or y >= self.M:
@@ -164,9 +181,7 @@ class MCTS:
         self.train_X = []
         self.train_Y = [], []
     def selection(self, node : Node, board : Board) -> None: ## finish
-        # node = self.root
-        # board = copy.deepcopy(self.board)
-        board = copy.deepcopy(board)
+        # board = copy.deepcopy(board)
         while True:
             if node.terminal:
                 result = board.checkTerminal()
@@ -175,7 +190,7 @@ class MCTS:
                     z = 1
                 elif result == 1:
                     z = -1
-                self.backpropagation(node, z)
+                self.backpropagation(node, z, board)
                 break
             if node.N == 0 or len(node.child) == 0:
                 self.expansion(board, node)
@@ -204,7 +219,7 @@ class MCTS:
                 z = 1
             elif result == 1:
                 z = -1
-            self.backpropagation(node, z)
+            self.backpropagation(node, z, board)
             return
         y = self.model.predict(np.array([board.getFeatures()]))
         if not node.parent:
@@ -221,7 +236,7 @@ class MCTS:
                     node.child.append(Node(i, j, color, node, (1 - self.epsilon) * y[0][0][child_idx] + self.epsilon * noise[child_idx]))
                 else:
                     node.child.append(Node(i, j, color, node, y[0][0][child_idx]))
-        self.backpropagation(node, y[1][0][0])
+        self.backpropagation(node, y[1][0][0], board)
 
     def simulation(self, board : Board, color : int): # finish
         while board.checkTerminal() == -1:
@@ -236,7 +251,7 @@ class MCTS:
             board.play(action[0], action[1], color)
             color = 1 - color
         return board.checkTerminal()
-    def backpropagation(self, node : Node, result): # finish
+    def backpropagation(self, node : Node, result, board : Board): # finish
         while node is not None:
             node.N += 1
             z = result
@@ -245,6 +260,8 @@ class MCTS:
             node.W += z
             node.Q = node.W / node.N
             node = node.parent
+            if node is not None:
+                board.undo()
     def softmax(self, x):
         probs = np.exp(x - np.max(x))
         sum = np.sum(probs)
@@ -375,15 +392,16 @@ if __name__ == '__main__':
 
     if Test:
         board = Board(8,8,5)
-        dir = [[0,1], [1,0], [1,1], [1,-1]]
-        i = 5
-        x = 0 + dir[2][0] * (i+1)
-        y = 0 + dir[2][1] * (i+1)
-        board.play(x, y, 0)
-        for i in range(5):
-            x = 0 + dir[2][0] * (i+1)
-            y = 0 + dir[2][1] * (i+1)
-            board.play(x, y, 0)
-            print(board.checkTerminal())
+        board.play(3,4,0)
+        board.play(4,3,1)
         board.draw()
+        self = board
+        print(self.last_action)
+        board.undo()
+        board.draw()
+        print(self.last_action)
+        board.undo()
+        board.draw()
+        print(self.last_action)
+        board.undo()
         
