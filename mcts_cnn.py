@@ -24,10 +24,12 @@ class Network_Model:
         self.H2 = Conv2D(32, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.InputTensor)
         # self.H2 = Conv2D(64, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
         # self.H2 = Conv2D(128, 3, 3, activation = 'relu', kernel_regularizer=l2(1e-4), padding="same")(self.H2)
-        self.H2 = Conv2D(4, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
+        self.H2 = Conv2D(9, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
         self.H3 = Flatten()(self.H2)
-        self.strategyOutput = Dense(N * M, activation='softmax')(self.H3)
-        self.valueOutput = Dense(1, activation='tanh')(self.H3)
+        self.strategyOutput = Dense(N * M, activation='softmax', kernel_regularizer=l2(1e-4))(self.H3)
+        self.H4 = Conv2D(2, 1, 1, activation = 'relu', kernel_regularizer=l2(1e-4))(self.H2)
+        self.H5 = Flatten()(self.H4)
+        self.valueOutput = Dense(1, activation='tanh', kernel_regularizer=l2(1e-4))(self.H5)
         self.model = keras.Model(
             inputs=[self.InputTensor],
             outputs=[self.strategyOutput,self.valueOutput ]
@@ -153,14 +155,14 @@ class MCTS:
         self.c = math.sqrt(2)
         self.epsilon = 0.25
         self.c_puct = 5
-        self.temp = 1e-2
+        self.temp = 1.0
         self.interations = 400
         self.board = copy.deepcopy(board)
         self.color = color
         self.root = Node(color=1-color)
         self.model = model
-        self.trainX = []
-        self.trainY = []
+        self.train_X = []
+        self.train_Y = [], []
     def selection(self, node : Node, board : Board) -> None: ## finish
         # node = self.root
         # board = copy.deepcopy(self.board)
@@ -205,13 +207,20 @@ class MCTS:
             self.backpropagation(node, z)
             return
         y = self.model.predict(np.array([board.getFeatures()]))
+        if not node.parent:
+        # if False:
+            noise = np.random.dirichlet(0.3 * np.ones(board.N * board.M))
         color = 1 - node.color
         for i in range(board.N):
             for j in range(board.M):
                 if not board.canPlay(i, j):
                     continue
                 child_idx = i * board.M + j
-                node.child.append(Node(i, j, color, node, y[0][0][child_idx]))
+                if not node.parent:
+                # if False:
+                    node.child.append(Node(i, j, color, node, (1 - self.epsilon) * y[0][0][child_idx] + self.epsilon * noise[child_idx]))
+                else:
+                    node.child.append(Node(i, j, color, node, y[0][0][child_idx]))
         self.backpropagation(node, y[1][0][0])
 
     def simulation(self, board : Board, color : int): # finish
@@ -244,35 +253,41 @@ class MCTS:
 
     def train(self, games = 1000):
         for game in range(games):
-            train_X = []
-            train_Y = [],[]
+            # train_X = []
+            # train_Y = [],[]
             print('training games: ' + str(game+1) + '/' + str(games))
             board = copy.deepcopy(self.board)
-            node = self.root
+            node = Node(color=1)
             while board.checkTerminal() == -1:
                 # train_X.append(board.getFeatures())
                 for i in range(4):
                     for j in range(2):
-                        train_X.append(board.getFeatures(i, j))
+                        self.train_X.append(board.getFeatures(i, j))
                 for iter in range(self.interations):
                     self.selection(node, board)
                 target_y = np.zeros(board.N * board.M)
                 visits = [node.child[i].N for i in range(len(node.child))]
                 actionSet = []
-                strategy = self.softmax(1.0/self.temp * np.log(np.array(visits) + 1e-10))
+
+                if board.round < 1:
+                    temp = 1.0
+                else:
+                    temp = 1e-2
+                strategy = self.softmax(1.0/temp * np.log(np.array(visits) + 1e-10))
                 for i in range(len(node.child)):
                     idx = node.child[i].x * board.M + node.child[i].y
                     actionSet.append(i)
                     target_y[idx] = strategy[i]
+                sum = target_y.sum()
                 for i in range(4):
                     for j in range(2):
                         y = np.array(target_y).reshape((board.N, board.M))
                         y = np.rot90(y, i)
                         if j:
                             y = np.flipud(y)
-                        train_Y[0].append(y.reshape(board.N * board.M))
+                        self.train_Y[0].append(y.reshape(board.N * board.M))
                 strategy = np.array(strategy)
-                strategy = self.epsilon * np.random.dirichlet(0.3*np.ones(len(strategy))) + (1 - self.epsilon) * np.array(strategy)
+                # strategy = self.epsilon * np.random.dirichlet(0.3*np.ones(len(strategy))) + (1 - self.epsilon) * np.array(strategy)
                 if len(actionSet) == 0:
                     print("ERR of actionSet")
                     board.draw()
@@ -283,6 +298,7 @@ class MCTS:
                 action = np.random.choice(actionSet, p=strategy) # 將要玩的子節點編號
                 board.play(node.child[action].x, node.child[action].y, board.round % 2)
                 print('play at ', node.child[action].x, node.child[action].y)
+                print('P = ', node.child[action].P)
                 print('v = ', node.child[action].Q)
                 # tmp = []
                 # for i in actionSet:
@@ -290,18 +306,22 @@ class MCTS:
                 # print(tmp)
                 board.draw()
                 print('')
-                node = node.child[action]
+                # node = node.child[action]
+                node = Node(color=1 - board.round % 2)
             z = 0
             result = board.checkTerminal()
             if result == 0:
                 z = 1
             elif result == 1:
                 z = -1
-            for i in range(len(train_Y[0])):
-                train_Y[1].append([z])
+            while len(self.train_Y[0]) > len(self.train_Y[1]):
+                self.train_Y[1].append([z])
             print('z = ', z)
-            self.model.fit(train_X, train_Y)
-            self.save_weights('cnn_weight.h5')
+            if len(self.train_X) >= (5+9) // 2 * 8 * 5:
+                self.model.fit(self.train_X, self.train_Y)
+                self.save_weights('cnn_weight.h5')
+                self.train_X = []
+                self.train_Y = [], []
 
     def play(self):
         for i in range(self.interations):
@@ -321,11 +341,11 @@ class MCTS:
 
 def main():
     board = Board(N, M, K)
-    color = 1
+    color = 0
     while True:
-        x = int(input(''))
-        y = int(input(''))
-        board.play(x, y, 1 - color)
+        # x = int(input(''))
+        # y = int(input(''))
+        # board.play(x, y, 1 - color)
 
         mcts = MCTS(board, color, Network_Model())
         mcts.load_weights('cnn_weight.h5')
@@ -338,9 +358,9 @@ def main():
         board.play(x, y, color)
         board.draw()
 
-        # x = int(input(''))
-        # y = int(input(''))
-        # board.play(x, y, 1 - color)
+        x = int(input(''))
+        y = int(input(''))
+        board.play(x, y, 1 - color)
         
 if __name__ == '__main__':
     Train = True
@@ -349,7 +369,7 @@ if __name__ == '__main__':
     if Train:
         mcts = MCTS(Board(N,M,K), 0, Network_Model())
         # mcts.load_weights('cnn_weight.h5')
-        mcts.train(100)
+        mcts.train(1000)
         mcts.save_weights('cnn_weight.h5')
     main()
 
